@@ -86,8 +86,6 @@
           </p>
         </div>
       
-
-
       <div class="flex gap-2">
         <Button size="sm" on:click={() => fileInput.click()}>
           <Plus class="h-4 w-4 mr-2" />
