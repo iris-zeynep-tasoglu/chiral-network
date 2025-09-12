@@ -64,6 +64,8 @@
     fetchBalance()
   }
 
+
+
   // Derived filtered transactions
   $: filteredTransactions = $transactions
     .filter(tx => {
