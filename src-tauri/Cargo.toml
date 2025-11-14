@@ -84,6 +84,7 @@ blockstore = { version = "0.7.0", features = ["redb"] }
 
 # ed2k protocol support (MD4 hashing for eDonkey2000)
 md4 = "0.10"
+md5 = "0.7"
 thiserror = "1.0"
 
 # WebRTC dependencies for P2P file transfers
