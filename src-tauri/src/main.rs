@@ -39,6 +39,7 @@ pub mod multi_source_download;
 
 mod logger;
 pub mod bittorrent_handler;
+pub mod bittorrent;
 pub mod download_restart;
 
 use protocols::{ProtocolManager, ProtocolHandler};
@@ -364,6 +365,7 @@ struct AppState {
     // File logger writer for dynamic log configuration updates
     file_logger: Arc<Mutex<Option<logger::ThreadSafeWriter>>>,
     // BitTorrent handler for creating and seeding torrents
+    bittorrent_handler_v2: Arc<Mutex<bittorrent::BitTorrentHandler>>,
     bittorrent_handler: Arc<bittorrent_handler::BitTorrentHandler>,
 
     // Download restart service for pause/resume functionality
@@ -5299,6 +5301,11 @@ fn main() {
             // BitTorrent handler for creating and seeding torrents
             bittorrent_handler: bittorrent_handler_arc,
 
+            // New BitTorrent handler from bittorrent.rs
+            bittorrent_handler_v2: Arc::new(Mutex::new(bittorrent::BitTorrentHandler::new(
+                Default::default(),
+                Default::default(), Some(app.handle().clone())
+            ))),
             // Download restart service (will be initialized in setup)
             download_restart: Mutex::new(None),
         })
@@ -5475,7 +5482,15 @@ fn main() {
             start_download_restart,
             pause_download_restart,
             resume_download_restart,
-            get_download_status_restart
+            get_download_status_restart,
+            // BitTorrent v2 commands
+            bittorrent::download_torrent,
+            bittorrent::seed_content,
+            bittorrent::pause_torrent,
+            bittorrent::resume_torrent,
+            bittorrent::remove_torrent,
+            bittorrent::get_torrent_status,
+            bittorrent::get_torrent_details
         ])
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_os::init())

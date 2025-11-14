@@ -7,13 +7,14 @@ use anyhow::{Result, anyhow};
 use std::path::Path;
 use std::sync::Arc;
 use std::collections::HashMap;
+use tauri::AppHandle;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{info, instrument, error, warn};
 use serde::{Deserialize, Serialize};
-use crate::config::bittorrent::BitTorrentConfig;
+use chiral_network::config::bittorrent::BitTorrentConfig;
 
 /// Events emitted during BitTorrent operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub enum TorrentEvent {
     /// Progress update for a torrent
     Progress {
@@ -211,13 +212,14 @@ pub struct BitTorrentHandler {
     event_sender: broadcast::Sender<TorrentEvent>,
     config: Arc<RwLock<BitTorrentConfig>>,
     torrents: Arc<RwLock<HashMap<String, TorrentInfo>>>,
+    app_handle: Option<AppHandle>,
     // TODO: Add librqbit session here when implementing
     // session: Option<Arc<librqbit::Session>>,
 }
 
 impl BitTorrentHandler {
     /// Creates a new `BitTorrentHandler` with configuration.
-    pub fn new(config: BitTorrentConfig) -> Self {
+    pub fn new(config: BitTorrentConfig, app_handle: Option<AppHandle>) -> Self {
         info!("BitTorrentHandler initialized with config");
         let (event_sender, _) = broadcast::channel(1000);
         
@@ -225,6 +227,7 @@ impl BitTorrentHandler {
             event_sender,
             config: Arc::new(RwLock::new(config)),
             torrents: Arc::new(RwLock::new(HashMap::new())),
+            app_handle,
         }
     }
 
@@ -262,6 +265,12 @@ impl BitTorrentHandler {
 
     /// Send an event to all subscribers
     fn emit_event(&self, event: TorrentEvent) {
+        // Also forward to the Svelte UI if AppHandle is available
+        if let Some(handle) = &self.app_handle {
+            if let Err(e) = handle.emit_all(event.event_name(), event.clone()) {
+                warn!("Failed to emit Tauri event: {}", e);
+            }
+        }
         if let Err(e) = self.event_sender.send(event) {
             warn!("Failed to send torrent event: {}", e);
         }
@@ -312,8 +321,8 @@ impl BitTorrentHandler {
 
     /// Start monitoring torrent progress
     async fn monitor_torrent_progress(&self, info_hash: String, name: String) {
-        let sender = self.event_sender.clone();
         let torrents = self.torrents.clone();
+        let handler_clone = self.clone();
 
         tokio::spawn(async move {
             // TODO: Replace with actual librqbit progress monitoring
@@ -335,7 +344,7 @@ impl BitTorrentHandler {
                     None
                 };
 
-                let _ = sender.send(TorrentEvent::Progress {
+                handler_clone.emit_event(TorrentEvent::Progress {
                     info_hash: info_hash.clone(),
                     downloaded,
                     total,
@@ -346,13 +355,12 @@ impl BitTorrentHandler {
 
                 if downloaded >= total {
                     // Update torrent state
-                    if let Ok(mut torrents_map) = torrents.write() {
-                        if let Some(torrent) = torrents_map.get_mut(&info_hash) {
-                            torrent.state = TorrentState::Complete;
-                        }
+                    let mut torrents_map = torrents.write().await;
+                    if let Some(torrent) = torrents_map.get_mut(&info_hash) {
+                        torrent.state = TorrentState::Complete;
                     }
 
-                    let _ = sender.send(TorrentEvent::Complete {
+                    handler_clone.emit_event(TorrentEvent::Complete {
                         info_hash: info_hash.clone(),
                         name: name.clone(),
                         path: "/simulated/path".to_string(),
@@ -393,7 +401,14 @@ impl BitTorrentHandler {
 
 impl Default for BitTorrentHandler {
     fn default() -> Self {
-        Self::new(BitTorrentConfig::default())
+        Self::new(BitTorrentConfig::default(), None)
+    }
+}
+
+impl Clone for BitTorrentHandler {
+    fn clone(&self) -> Self {
+        // AppHandle can be cloned, so this is safe
+        Self::new(self.config.blocking_read().clone(), self.app_handle.clone())
     }
 }
 

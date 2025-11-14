@@ -34,6 +34,48 @@
     // Initialize payment service to load persisted wallet and transactions
     paymentService.initialize();
 
+    // Listen for BitTorrent events
+    listen('torrent_progress', (event) => {
+      const progress = event.payload as any;
+      files.update(f => f.map(file => {
+        if (file.hash === progress.info_hash) {
+          return {
+            ...file,
+            progress: (progress.downloaded / progress.total) * 100,
+            status: 'downloading' as const,
+            speed: toHumanReadableSize(progress.speed) + '/s',
+            eta: progress.eta_seconds ? `${progress.eta_seconds}s` : 'N/A',
+          };
+        }
+        return file;
+      }));
+    });
+
+    listen('torrent_complete', (event) => {
+      const completed = event.payload as any;
+      files.update(f => f.map(file => {
+        if (file.hash === completed.info_hash) {
+          return {
+            ...file,
+            status: 'completed' as const,
+            progress: 100,
+            downloadPath: completed.path,
+          };
+        }
+        return file;
+      }));
+      showNotification(`Download complete: ${completed.name}`, 'success');
+    });
+
+    listen('torrent_added', (event) => {
+        const added = event.payload as any;
+        const newFile = {
+            id: `download-${Date.now()}`, name: added.name, hash: added.info_hash,
+            size: 0, status: 'downloading' as const, progress: 0,
+        };
+        files.update(f => [...f, newFile]);
+    });
+
     initDownloadTelemetry()
 
     // Listen for multi-source download events
